@@ -8,6 +8,8 @@ import seaborn as sns
 import random
 import time
 from utils import precompute_results, compare_learning_curves
+from data_utils import data_scaling, df_corr, create_xy
+from model_utils import *
 
 # Standard Scikit-Learn Imports
 from sklearn.manifold import TSNE
@@ -25,51 +27,38 @@ from sklearn.metrics import (
 )
 
 # Model imports
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
+
 import warnings
 
 warnings.filterwarnings("ignore")
+random.seed(42)
 
 import streamlit as st
 
 st.title("Credit Card Fraud Detection!")
 
-# df = st.cache(pd.read_csv)('creditcard.csv')
-df = pd.read_csv("creditcard.csv")
+df_raw = st.cache(pd.read_csv)("creditcard.csv")
+
 
 # Some basic calcs
 # Lets calculate the the class occurance as a % of the total
-fraud_count = len(df[df["Class"] == 1])
-valid_count = len(df[df["Class"] == 0])
-total_count = len(df)
+fraud_count = len(df_raw[df_raw["Class"] == 1])
+valid_count = len(df_raw[df_raw["Class"] == 0])
+total_count = len(df_raw)
 
 # Scaling
-standard_scaler = StandardScaler()
-robust_scaler = RobustScaler()
+df_scaled = data_scaling(df_raw)
 
-df["Amount_scaled"] = robust_scaler.fit_transform(df["Amount"].values.reshape(-1, 1))
-
-df["Time_scaled"] = robust_scaler.fit_transform(df["Time"].values.reshape(-1, 1))
-
-amount_scaled = df["Amount_scaled"]
-time_scaled = df["Time_scaled"]
-
-df.drop(["Amount_scaled", "Time_scaled"], axis=1, inplace=True)
-df.drop(["Amount", "Time"], axis=1, inplace=True)
-df.insert(0, "amount_scaled", amount_scaled)
-df.insert(1, "time_scaled", time_scaled)
+# Other caches
+# vanilla_corr = st.cache(df_scaled.corr())
 
 X_Y_data_created = False
 
 avail_models = {
-    "DecisionTree": DecisionTreeClassifier(),
-    "SVC": SVC(),
-    "KNN": KNeighborsClassifier(),
-    "LogReg": LogisticRegression(),
+    "DecisionTree": dtc_cache,
+    "SVC": svc_cache,
+    "KNN": knn_cache,
+    "LogReg": logreg_cache,
 }
 
 gridcv_params = {
@@ -119,11 +108,11 @@ if choice == "Data Details":
     )
 
     st.write("<h2>Dataframe Head</h2>", unsafe_allow_html=True)
-    st.dataframe(df.iloc[np.random.randint(1, 100, size=(10,))])
+    st.dataframe(df_scaled.iloc[np.random.randint(1, 100, size=(10,))])
 
     st.write("<h2>Correlation Heatmap</h2>", unsafe_allow_html=True)
     fig, axes = plt.subplots(figsize=(30, 15))
-    sns.heatmap(df.corr(), annot=True, fmt=".2g", ax=axes)
+    sns.heatmap(df_corr(df_scaled), annot=True, fmt=".2g", ax=axes)
     st.write(fig, unsafe_allow_html=True)
     st.write("**As we can infer from the heatmap,**", unsafe_allow_html=True)
     st.write(
@@ -135,12 +124,12 @@ if choice == "Data Details":
         unsafe_allow_html=True,
     )
 
-elif choice == "Preproccesing":
+elif choice == "Preprocessing":
 
     st.write("<h2>Data Preprocessing</h2>", unsafe_allow_html=True)
 
-    scaled_fraud_count = df[df.Class == 1]
-    scaled_valid_count = df[df.Class == 0]
+    scaled_fraud_count = df_scaled[df_scaled.Class == 1]
+    scaled_valid_count = df_scaled[df_scaled.Class == 0]
 
     FRAUD_PER = 0.95
 
@@ -174,7 +163,7 @@ elif choice == "Preproccesing":
     )
     fig, axes = plt.subplots(figsize=(30, 15))
     sns.heatmap(
-        dataset_subsample.corr(),
+        df_corr(dataset_subsample),
         annot=True,
         cmap="coolwarm",
         fmt=".2g",
@@ -195,8 +184,7 @@ elif choice == "Preproccesing":
         unsafe_allow_html=True,
     )
 
-    X = dataset_subsample.drop("Class", axis=1)
-    Y = dataset_subsample.Class
+    X, Y = create_xy(dataset_subsample, "Class")
 
     X_Y_data_created = True
 
@@ -207,7 +195,7 @@ elif choice == "Preproccesing":
         st.write("<h2> Clustering the data </h2>", unsafe_allow_html=True)
 
         start_time = time.time()
-        X_tsne = TSNE(n_components=2, random_state=42).fit_transform(X.values)
+        X_tsne = tsne_cache(X)
         end_time = time.time()
         st.write(
             "* *TSNE reduction took*: {:.2f} s".format(end_time - start_time),
@@ -215,7 +203,7 @@ elif choice == "Preproccesing":
         )
 
         start_time = time.time()
-        X_pca = PCA(n_components=2, random_state=42).fit_transform(X.values)
+        X_pca = pca_cache(X)
         end_time = time.time()
         st.write(
             "* *PCA reduction took*: {:.2f} s".format(end_time - start_time),
@@ -223,9 +211,7 @@ elif choice == "Preproccesing":
         )
 
         start_time = time.time()
-        X_svd = TruncatedSVD(
-            n_components=2, algorithm="randomized", random_state=42
-        ).fit_transform(X.values)
+        X_svd = truncated_svd_cache(X)
         end_time = time.time()
         st.write(
             "* *Truncated SVD reduction took*: {:.2f} s".format(end_time - start_time),
@@ -300,24 +286,23 @@ else:
     st.write("<h2>Compare Models!</h2>", unsafe_allow_html=True)
     if not X_Y_data_created:
 
-        scaled_fraud_count = df[df.Class == 1]
-        scaled_valid_count = df[df.Class == 0]
+        scaled_fraud_count = df_scaled[df_scaled.Class == 1]
+        scaled_valid_count = df_scaled[df_scaled.Class == 0]
 
-    FRAUD_PER = 0.95
+        FRAUD_PER = 0.95
 
-    num_fraud = int(FRAUD_PER * scaled_fraud_count.shape[0])
+        num_fraud = int(FRAUD_PER * scaled_fraud_count.shape[0])
 
-    fraud_idx = random.sample(range(0, scaled_fraud_count.shape[0]), num_fraud)
-    valid_idx = random.sample(range(0, scaled_valid_count.shape[0]), num_fraud)
+        fraud_idx = random.sample(range(0, scaled_fraud_count.shape[0]), num_fraud)
+        valid_idx = random.sample(range(0, scaled_valid_count.shape[0]), num_fraud)
 
-    fraud_subsample = scaled_fraud_count.iloc[fraud_idx]
-    valid_subsample = scaled_valid_count.iloc[valid_idx]
+        fraud_subsample = scaled_fraud_count.iloc[fraud_idx]
+        valid_subsample = scaled_valid_count.iloc[valid_idx]
 
-    dataset_subsample = pd.concat([fraud_subsample, valid_subsample], axis=0)
-    dataset_subsample = dataset_subsample.sample(frac=1, random_state=120)
+        dataset_subsample = pd.concat([fraud_subsample, valid_subsample], axis=0)
+        dataset_subsample = dataset_subsample.sample(frac=1, random_state=120)
 
-    X = dataset_subsample.drop("Class", axis=1)
-    Y = dataset_subsample.Class
+        X, Y = create_xy(dataset_subsample, "Class")
 
     x_train, x_test, y_train, y_test = train_test_split(
         X, Y, test_size=0.2, random_state=120
@@ -335,28 +320,40 @@ else:
         unsafe_allow_html=True,
     )
 
+    st.write("---", unsafe_allow_html=True)
     choice = st.sidebar.multiselect("Choose models to compare", [*avail_models.keys()])
-
-    vanilla_results, gridcv_optimized = precompute_results(
-        avail_models, x_train, y_train, x_test, y_test, gridcv_params
-    )
-
-    figure, axes = plt.subplots(2, 2, figsize=(30, 10))
-    ax = {1: axes[0][0], 2: axes[0][1], 3: axes[1][0], 4: axes[1][1]}
+    choice_btn = st.sidebar.button("Compare!")
 
     cv = ShuffleSplit(n_splits=100, test_size=0.2, random_state=42)
-    count = 1
-    for key, model in gridcv_optimized.items():
-        f, ax[count] = compare_learning_curves(
-            model["model"],
-            x_train,
-            y_train,
-            (0.87, 1.01),
-            f=figure,
-            ax=ax[count],
-            cv=cv,
-            n_jobs=4,
-        )
-        count += 1
 
-    st.write(f)
+    if choice_btn:
+
+        figure, axes = plt.subplots(len(choice), 1, figsize=(30, 10))
+
+        ax = {}
+        for i in range(1, len(choice) + 1):
+            ax.update({i: axes[i - 1]})
+            count = 1
+
+        for c in choice:
+            k = c
+            f = avail_models[c]
+            start_time = time.time()
+            _compute_result = f(x_train, y_train, x_test, y_test, gridcv_params[k])
+            st.write(
+                "* Time taken for {}: {:.3f}s".format(k, time.time() - start_time),
+                unsafe_allow_html=True,
+            )
+            f, ax[count] = compare_learning_curves(
+                _compute_result["gs_model"],
+                x_train,
+                y_train,
+                (0.87, 1.01),
+                f=figure,
+                ax=ax[count],
+                cv=cv,
+                n_jobs=4,
+            )
+            count += 1
+
+        st.write(f)

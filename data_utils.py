@@ -37,18 +37,32 @@ def data_scaling(df: pd.DataFrame()):
     standard_scaler = StandardScaler()
     robust_scaler = RobustScaler()
 
-    df["Amount_scaled"] = robust_scaler.fit_transform(
-        df["Amount"].values.reshape(-1, 1)
+    _df = df.copy()
+
+    _df["Amount_scaled"] = standard_scaler.fit_transform(
+        _df["Amount"].values.reshape(-1, 1)
     )
 
-    df["Time_scaled"] = robust_scaler.fit_transform(df["Time"].values.reshape(-1, 1))
+    _df["Time_scaled"] = standard_scaler.fit_transform(
+        _df["Time"].values.reshape(-1, 1)
+    )
 
-    amount_scaled = df["Amount_scaled"]
-    time_scaled = df["Time_scaled"]
+    amount_scaled = _df["Amount_scaled"]
+    time_scaled = _df["Time_scaled"]
 
-    df.drop(["Amount_scaled", "Time_scaled"], axis=1, inplace=True)
-    df.drop(["Amount", "Time"], axis=1, inplace=True)
-    df.insert(0, "amount_scaled", amount_scaled)
-    df.insert(1, "time_scaled", time_scaled)
+    _df.drop(["Amount_scaled", "Time_scaled"], axis=1, inplace=True)
+    _df.drop(["Amount", "Time"], axis=1, inplace=True)
+    _df.insert(0, "amount_scaled", amount_scaled)
+    _df.insert(1, "time_scaled", time_scaled)
 
-    return df
+    return _df
+
+
+@st.cache
+def df_corr(df: pd.DataFrame):
+    return df.corr()
+
+
+@st.cache
+def create_xy(df: pd.DataFrame, label: str):
+    return df.drop(label, axis=1), df[label]
